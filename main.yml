@@ -1,0 +1,48 @@
+---
+- hosts: infra_server
+
+  pre_tasks:
+    - name: Load config
+      ansible.builtin.include_vars: config.yml
+
+    - name: set systemd vars (system)
+      set_fact:
+        systemd_scope: system
+        systemd_path: "/etc/systemd/system"
+      when: ansible_user_id == "root"
+
+    - name: set systemd vars (user)
+      set_fact:
+        systemd_scope: user
+        systemd_path: "{{ ansible_user_dir }}/.config/systemd/user"
+      when: ansible_user_id != "root"
+
+  handlers:
+    - name: Include handlers
+      ansible.builtin.import_tasks: tasks/handlers.yml
+
+  tasks:
+    - name: Setup podman
+      ansible.builtin.import_tasks: tasks/podman.yml
+
+    - name: Setup pihole
+      ansible.builtin.import_tasks: tasks/pihole.yml
+      when: pihole_enable
+
+    - name: Setup prometheus
+      ansible.builtin.import_tasks: tasks/prom.yml
+      when: prometheus_enable
+
+    - name: Setup speedtest exporter
+      ansible.builtin.import_tasks: tasks/speedtest.yml
+      when: speedtest_enable
+
+    - name: Setup ping exporter
+      ansible.builtin.import_tasks: tasks/ping.yml
+      when: ping_enable
+
+    - name: Setup grafana
+      ansible.builtin.import_tasks: tasks/grafana.yml
+      when: grafana_enable
+
+...

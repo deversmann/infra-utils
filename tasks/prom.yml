@@ -1,0 +1,59 @@
+---
+- name: open firewall ports for prometheus
+  ansible.posix.firewalld:
+    port: 9090/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+- name: copy prometheus files
+  ansible.builtin.copy:
+    src: "files/prometheus/"
+    dest: "{{ ansible_user_dir }}/prometheus"
+    force: no
+  notify: Fix prometheus config perms
+
+- name: check for existing prometheus systemd service file
+  ansible.builtin.stat:
+    path: "{{ systemd_path }}/container-prometheus.service"
+  register: service_file
+
+- name: stop prometheus container systemd service if exists
+  ansible.builtin.systemd:
+    name: container-prometheus
+    scope: "{{ systemd_scope }}"
+    state: stopped
+  when: service_file.stat.exists
+
+- name: create prometheus container and systemd file
+  containers.podman.podman_container:
+    name: prometheus
+    image: docker.io/prom/prometheus:v2.25.2
+    state: started
+    recreate: true
+    ports:
+      - 9090:9090/tcp
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=90d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    volume:
+      - "{{ ansible_user_dir }}/prometheus:/etc/prometheus:Z"
+      - "prometheus_data:/prometheus:Z"
+    generate_systemd:
+      new: true
+      path: "{{ systemd_path }}"
+      restart_policy: always
+
+- name: activate prometheus container systemd service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    name: container-prometheus
+    scope: "{{ systemd_scope }}"
+    state: started
+
+...

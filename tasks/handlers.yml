@@ -1,0 +1,16 @@
+---
+- name: Fix prometheus config perms
+  ansible.builtin.shell: "podman unshare chown -R nobody:nobody {{ ansible_user_dir }}/prometheus"
+
+- name: Fix grafana config perms
+  ansible.builtin.shell: "podman unshare chown -R 472:0 {{ ansible_user_dir }}/grafana"
+
+- name: Restart prometheus
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    name: container-prometheus
+    scope: "{{ systemd_scope }}"
+    state: restarted
+
+...

@@ -1,0 +1,19 @@
+---
+- name: ensure podman installed
+  ansible.builtin.dnf:
+    name: podman
+    state: latest
+  become: true
+
+- name: user lingering for non-root podman
+  block:
+  - name: check for linger
+    ansible.builtin.stat:
+      path: "/var/lib/systemd/linger/{{ansible_user_id}}"
+    register: lingering
+
+  - name: linger user if necessary
+    ansible.builtin.command: "loginctl enable-linger {{ansible_user_id}}"
+    when: not lingering.stat.exists
+  when: ansible_user_id != "root"
+

@@ -1,0 +1,58 @@
+---
+- name: open firewall ports for speedtest exporter
+  ansible.posix.firewalld:
+    port: 9798/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+- name: check for existing speedtest systemd service file
+  ansible.builtin.stat:
+    path: "{{ systemd_path }}/container-speedtest.service"
+  register: service_file
+
+- name: stop speedtest container systemd service if exists
+  ansible.builtin.systemd:
+    name: container-speedtest
+    scope: "{{ systemd_scope }}"
+    state: stopped
+  when: service_file.stat.exists
+
+- name: create speedtest container and systemd file
+  containers.podman.podman_container:
+    name: speedtest
+    image: docker.io/miguelndecarvalho/speedtest-exporter
+    state: started
+    recreate: true
+    ports:
+      - 9798:9798/tcp
+    generate_systemd:
+      new: true
+      path: "{{ systemd_path }}"
+      restart_policy: always
+
+- name: activate speedtest container systemd service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    name: container-speedtest
+    scope: "{{ systemd_scope }}"
+    state: started
+
+- name: add lines to prometheus config for speedtest
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_user_dir }}/prometheus/prometheus.yml"
+    marker: "# {mark} ANSIBLE MANAGED SPEEDTEST BLOCK"
+    block: |2
+        - job_name: 'speedtest'
+          metrics_path: /metrics
+          scrape_interval: {{ speedtest_interval }}
+          scrape_timeout: 60s  # running speedtest needs time to complete
+          static_configs:
+            - targets: ['{{ ansible_host }}:9798']
+  become: true # because we've already changed owners for container usage
+  notify:
+  - Restart prometheus
+
+...

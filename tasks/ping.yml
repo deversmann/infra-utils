@@ -1,0 +1,92 @@
+---
+- name: open firewall ports for ping exporter
+  ansible.posix.firewalld:
+    port: 9115/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+
+- name: copy blackbox files for ping
+  ansible.builtin.copy:
+    src: "files/blackbox/"
+    dest: "{{ ansible_user_dir }}/blackbox"
+    force: no
+
+- name: Copy pinghost template into place
+  ansible.builtin.template:
+    src: templates/prometheus-pinghosts.yaml.j2
+    dest: "{{ ansible_user_dir }}/prometheus/pinghosts.yaml"
+    mode: 0644
+  notify: Fix prometheus config perms
+
+- name: check for existing ping systemd service file
+  ansible.builtin.stat:
+    path: "{{ systemd_path }}/container-ping.service"
+  register: service_file
+
+- name: stop ping container systemd service if exists
+  ansible.builtin.systemd:
+    name: container-ping
+    scope: "{{ systemd_scope }}"
+    state: stopped
+  when: service_file.stat.exists
+
+- name: create ping container and systemd file
+  containers.podman.podman_container:
+    name: ping
+    image: docker.io/prom/blackbox-exporter
+    state: started
+    recreate: true
+    interactive: true
+    tty: true
+    ports:
+      - 9115:9115/tcp
+    command:
+      - "--config.file=/config/blackbox.yml"
+    volume:
+      - ./blackbox/config:/config:Z
+    generate_systemd:
+      new: true
+      path: "{{ systemd_path }}"
+      restart_policy: always
+
+- name: activate ping container systemd service
+  ansible.builtin.systemd:
+    daemon_reload: true
+    enabled: true
+    name: container-ping
+    scope: "{{ systemd_scope }}"
+    state: started
+
+- name: add lines to prometheus config for ping
+  ansible.builtin.blockinfile:
+    path: "{{ ansible_user_dir }}/prometheus/prometheus.yml"
+    marker: "# {mark} ANSIBLE MANAGED PING BLOCK"
+    block: |2
+        - job_name: 'ping'
+          metrics_path: /probe
+          scrape_interval: {{ ping_interval }}
+          params:
+            module: [http_2xx]  # Look for a HTTP 200 response.
+          file_sd_configs:
+            - files:
+                - pinghosts.yaml
+          relabel_configs:
+            - source_labels: [__address__]
+              regex: '(.*);(.*)'  # first is the url, thus unique for instance
+              target_label: instance
+              replacement: $1
+            - source_labels: [__address__]
+              regex: '(.*);(.*)'  # second is humanname to use in charts
+              target_label: humanname
+              replacement: $2
+            - source_labels: [instance]
+              target_label: __param_target
+            - target_label: __address__
+              replacement: {{ ansible_host }}:9115  # The blackbox exporter's real hostname:port.
+  become: true # because we've already changed owners for container usage
+  notify:
+  - Restart prometheus
+
+...
