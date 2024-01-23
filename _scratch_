@@ -1,0 +1,11 @@
+sudo firewall-cmd --add-port=3030/tcp
+sudo firewall-cmd --add-port=3030/tcp --permanent
+
+podman unshare chown -R nobody:nobody monitoring/prometheus monitoring/prometheus_data
+podman unshare chown -R 472:0 monitoring/grafana monitoring/grafana_data
+
+podman pod create --name monitoring -p 9090:9090 -p 3030:3000 -p 9115:9115 -p 9798:9798 -p 9100:9100
+podman run -d --pod monitoring --name prometheus -v ./monitoring/prometheus:/etc/prometheus:Z -v prometheus_data:/prometheus:Z docker.io/prom/prometheus:v2.25.2 '--config.file=/etc/prometheus/prometheus.yml' '--storage.tsdb.path=/prometheus' '--storage.tsdb.retention.time=90d' '--web.console.libraries=/usr/share/prometheus/console_libraries' '--web.console.templates=/usr/share/prometheus/consoles'
+podman run -d --pod monitoring --name grafana -v ./monitoring/grafana/provisioning:/etc/grafana/provisioning:Z -v grafana_data:/var/lib/grafana:Z --env-file=./monitoring/grafana/config.monitoring docker.io/grafana/grafana
+podman run -itd --pod monitoring --name ping -v ./monitoring/blackbox/config:/config:Z docker.io/prom/blackbox-exporter '--config.file=/config/blackbox.yml'
+podman run -d --pod monitoring --name speedtest docker.io/miguelndecarvalho/speedtest-exporter

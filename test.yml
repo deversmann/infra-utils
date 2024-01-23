@@ -1,0 +1,16 @@
+---
+- hosts: infra_server
+  become: false
+
+  tasks:
+    # - command: echo $USER
+    #   register: usernm
+
+    # - command: echo $HOME
+    #   register: userhome
+
+    # - debug: msg={{ usernm.stdout }}
+    # - debug: msg={{ userhome.stdout }}
+
+    - debug: msg={{ ansible_user_dir }}
+      become: true
